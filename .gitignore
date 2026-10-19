@@ -13,6 +13,19 @@ yarn-error.log*
 .env
 .env.*.local
 
+# Terraform generated files and local secrets
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+*_override.tf
+*_override.tf.json
+override.tf
+override.tf.json
+
 # Python virtual environments, caches, and test artifacts
 .venv/
 venv/

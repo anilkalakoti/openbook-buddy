@@ -48,60 +48,127 @@ openbook-buddy/
 │   ├── package.json
 │   └── src/
 │       └── server.js
-└── frontend/
-    ├── Dockerfile
-    ├── package.json
-    ├── index.html
-    └── src/
-        ├── main.jsx
-        └── App.jsx
+├── frontend/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── index.html
+│   └── src/
+│       ├── main.jsx
+│       └── App.jsx
+└── terraform/
+    ├── main.tf
+    ├── variables.tf
+    ├── outputs.tf
+    └── terraform.tfvars.example
 ```
 
 ---
 
-## 🛠️ Step-by-Step Local Setup Guide
+## Run OpenBook Buddy Locally
 
 ### Prerequisites
-* **Docker Desktop** installed and running on your system.
-* At least **4GB of available RAM** to run the local Ollama models smoothly.
 
-### Step 1: Clone or Set Up the Project
-Navigate into your project root folder:
-```bash
-cd openbook-buddy
-```
+* Docker Desktop (or Docker Engine with the Docker Compose plugin), running.
+* At least 4 GB of available memory; more is recommended for running the Ollama models.
 
-### Step 2: Configure Environment Variables
-Create your local `.env` file from the example configuration:
+From the repository root, create your environment file (`.env.example` contains the defaults):
+
 ```bash
 cp .env.example .env
 ```
-Ensure your `.env` contains:
-```env
-PORT=5000
-OLLAMA_BASE_URL=http://ollama-service:11434
-EMBEDDING_MODEL=qwen3-embedding:0.6b
-CHAT_MODEL=qwen2.5:3b
-CHROMA_HOST=chromadb
-CHROMA_PORT=8000
-```
 
-### Step 3: Build and Run with Docker Compose
-Execute the following command to build all containers and start the stack:
+On Windows PowerShell, use `Copy-Item .env.example .env` instead. `OPENAI_API_KEY` is optional for the current local Ollama chat endpoint.
+
+Build and start all services:
+
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
-> *Note: On the first boot, Docker will automatically download Ollama, pull the `qwen3-embedding` and `qwen2.5:3b` models, build the Node.js backend, and set up the React frontend. This may take a few minutes depending on your internet speed.*
 
-### Step 4: Access OpenBook Buddy
-Once all services are running:
-* **Frontend Web UI:** Open `http://localhost:3000` in your browser.
-* **Backend REST API:** `http://localhost:5000`
-* **Chroma DB Dashboard:** `http://localhost:8001`
+The first startup downloads Ollama and the configured models, so it can take a while. When the containers are ready, open:
 
----
+* **Web app:** [http://localhost:3000](http://localhost:3000)
+* **Backend API:** [http://localhost:5000](http://localhost:5000)
+* **ChromaDB:** [http://localhost:8001](http://localhost:8001)
 
-## 💡 Usage Workflow
-1. **Upload Reference Materials:** In the left sidebar of the UI, upload your exam guides, lecture slides, or textbooks (`.pdf` or `.txt`).
-2. **Initialize Workspace:** Click **Upload & Initialize** to chunk and embed documents locally.
-3. **Ace Your Test:** Ask questions in the chat box. OpenBook Buddy will reference exact paragraphs from your texts to generate precise, hallucination-free answers!
+Stop the stack with `docker compose down`. Uploaded vectors and Ollama models are stored in Docker volumes and are retained when the containers are stopped.
+
+## Deploy to Linode with Terraform
+
+The Terraform configuration in `terraform/` provisions an Ubuntu Linode and uses cloud-init to install Docker, configure firewall access, and create the Docker Compose and environment files under `/opt/openbook-buddy`. It does **not** copy the application source code to the new server or build/start the containers; those are the remaining deployment steps below.
+
+### Prerequisites
+
+* A Linode account and an API token with permission to create instances.
+* Terraform 1.0 or newer installed locally.
+* SSH/SCP available locally, and enough Linode memory for Ollama (the Terraform default is `g6-standard-2`).
+
+### 1. Configure and create the Linode
+
+From the repository root, make a private Terraform variables file and provide your Linode token, root password, and region/plan as needed:
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars`. Treat this file and Terraform state as secrets; do not commit them. The `openai_api_key` value can be empty for the configured Ollama chat flow.
+
+Initialize Terraform, review the plan, then provision the instance:
+
+```bash
+terraform init
+terraform plan
+terraform apply
+```
+
+Confirm the apply when prompted. Get the new server's address and UI URL:
+
+```bash
+terraform output instance_ip
+terraform output ui_url
+```
+
+Wait for cloud-init to finish installing Docker before proceeding. You can check by connecting with SSH and running `cloud-init status --wait`.
+
+### 2. Set the frontend API address for this Linode
+
+In `frontend/src/App.jsx`, update the `API_BASE` constant to use the IP returned by Terraform, keeping port `5000` and the `/api` path. For example:
+
+```jsx
+const API_BASE = 'http://<LINODE_IP>:5000/api';
+```
+
+Replace `<LINODE_IP>` with the actual instance IP. This address is baked into the frontend build, so make this change **before** building/deploying the frontend. If you recreate the Linode with a different IP, update this line and rebuild/redeploy the frontend.
+
+### 3. Copy the application to the server and start it
+
+From the repository root on your local machine, copy the backend and frontend source plus the Compose file to the server (replace `<LINODE_IP>`):
+
+```bash
+scp -r backend frontend docker-compose.yml root@<LINODE_IP>:/opt/openbook-buddy/
+```
+
+Connect to the server and build/start the stack:
+
+```bash
+ssh root@<LINODE_IP>
+cd /opt/openbook-buddy
+docker compose up --build -d
+```
+
+The initial image build and Ollama model downloads can take several minutes. Check service status and logs with `docker compose ps` and `docker compose logs -f`.
+
+### 4. Open the deployed app
+
+Visit the `ui_url` Terraform output, typically `http://<LINODE_IP>:3000`. The Terraform cloud-init firewall allows ports 22, 3000, and 5000. Avoid exposing the backend publicly in a production deployment; use a reverse proxy and HTTPS, and restrict firewall access as appropriate.
+
+### Remove the Linode
+
+When you no longer need the instance, run `terraform destroy` from the `terraform/` directory. This deletes the Linode and its data; download anything you need first.
+
+## Usage
+
+1. Upload PDF or text reference materials from the left sidebar.
+2. Click **Upload & Initialize** to split and embed the documents.
+3. Ask questions in the chat, optionally filtering retrieval to one document.

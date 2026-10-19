@@ -1,0 +1,5 @@
+linode_token   = "your_linode_api_token_here"
+root_password  = "YourSecureRootPassword123!"
+openai_api_key = "sk-proj-your-openai-api-key-if-want-to-switch"
+region         = "us-east"
+instance_type  = "g6-standard-2" # 4GB RAM minimum for Docker stack
